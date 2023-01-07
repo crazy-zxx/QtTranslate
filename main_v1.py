@@ -1,24 +1,42 @@
 import re
 import sys
 import threading
+import time
 
 import darkdetect
 
 import qdarktheme
 
-from PyQt5 import QtCore, QtWidgets, QtNetwork
-from PyQt5.QtCore import QThread, pyqtSignal, QUrl
-from PyQt5.QtGui import QIcon, QColor
-from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5 import QtCore
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt
+from PyQt5.QtGui import QIcon
 
 from PyQt5.QtWidgets import QApplication, QDesktopWidget, QSystemTrayIcon, QAction, QMenu, qApp
 
 from qframelesswindow import FramelessWindow
 from system_hotkey import SystemHotkey
 
-from window import Ui_Form
+from MyDialog import MyGoogleDialog, MyBaiduDialog
+from MyTranslate import GoogleTranslate, BaiduTranslate, YoudaoTranslate, DeepLTranslate
 
 import images_rc
+
+from win_v1 import Ui_Form
+
+
+# 翻译线程
+class MyThread(QThread):
+    """该线程用于耗时的翻译操作"""
+    _sig = pyqtSignal(object)  # 信号类型为 str
+
+    def __init__(self, func, **args):
+        super(MyThread, self).__init__()
+        self.func = func
+        self.args = args
+
+    def run(self):
+        result = self.func(**self.args)
+        self._sig.emit(result)  # 获取结果完成后，发送结果
 
 
 # 托盘图标
@@ -86,7 +104,7 @@ class HotKeyThread(QThread, SystemHotkey):
     def __init__(self, UI):
         self.ui = UI
         super(HotKeyThread, self).__init__()
-        self.register(('control', 'alt', 'l'), callback=lambda x: self.start())
+        self.register(('control', 'alt', 'f'), callback=lambda x: self.start())
         self.trigger.connect(self.hotKeyEvent)
 
     def run(self):
@@ -125,16 +143,35 @@ class Window(FramelessWindow):
         # 由于通过QLabel来显示窗口标题文字，所以需要置于最底层，否则标题栏无法使用原始标题栏拖动窗口操作
         self.ui.window_title.lower()
 
-        # 翻译引擎地址
-        google_url = 'https://translate.google.com/'
-        deepl_url = 'https://www.deepl.com/translator'
-        baidu_url = 'https://fanyi.baidu.com/'
-        youdao_url = 'https://fanyi.youdao.com/index.html#/'
+        self.last_resp_time = int(time.time())
 
-        self.add_web(google_url)
-        self.add_web(deepl_url)
-        self.add_web(baidu_url)
-        self.add_web(youdao_url)
+        # 切换主题的下拉菜单
+        self.ui.theme_comboBox.addItems(qdarktheme.get_themes())
+        self.ui.theme_comboBox.setCurrentText('auto')
+        self.ui.theme_comboBox.currentTextChanged.connect(self.change_theme)
+
+        self.ui.input_plainTextEdit.textChanged.connect(self.input_change)
+
+        # 切换语言
+        self.ui.input_comboBox.currentTextChanged.connect(self.change_language)
+        self.ui.output_comboBox.currentTextChanged.connect(self.change_language)
+
+        # 切换翻译引擎
+        self.ui.google_radioButton.clicked.connect(self.change_request)
+        self.ui.google_radioButton.setContextMenuPolicy(Qt.CustomContextMenu)  # 打开右键菜单策略
+        self.ui.google_radioButton.customContextMenuRequested.connect(self.showGoogleDialog)  # 连接到菜单显示函数
+        self.ui.deepl_radioButton.clicked.connect(self.change_request)
+        self.ui.baidu_radioButton.clicked.connect(self.change_request)
+        self.ui.baidu_radioButton.setContextMenuPolicy(Qt.CustomContextMenu)  # 打开右键菜单策略
+        self.ui.baidu_radioButton.customContextMenuRequested.connect(self.showBaiduDialog)  # 连接到菜单显示函数
+        self.ui.youdao_radioButton.clicked.connect(self.change_request)
+
+        # 按钮响应
+        self.ui.format_checkBox.clicked.connect(self.format_text)
+        self.ui.instant_translate_checkBox.clicked.connect(self.instant_translate)
+        self.ui.translate_pushButton.clicked.connect(self.get_translate_text)
+        self.ui.copy_pushButton.clicked.connect(self.copy_result)
+        self.ui.clear_pushButton.clicked.connect(self.clear_input_output)
 
         # 监听系统主题自动切换
         t = threading.Thread(target=darkdetect.listener, args=(self.change_theme,))
@@ -143,46 +180,55 @@ class Window(FramelessWindow):
         # 更新主题
         self.change_theme()
 
+        # 剪贴板
+        self.clipboard = QApplication.clipboard()
         # 热键响应
         self.hotKey = HotKeyThread(self)
         # 托盘图标
         self.tray = Tray(self)
 
+        # 翻译引擎语言表
+        self.Google = {'Chinese': 'zh-CN', 'English': 'en'}
+        self.DeepL = {'Chinese': 'zh', 'English': 'en'}
+        self.Baidu = {'Chinese': 'zh', 'English': 'en'}
+        self.Youdao = {'Chinese': 'zh', 'English': 'en'}
+        # 默认Google翻译引擎
+        self.translator = GoogleTranslate()
+        self.engine = 'Google'
+        self.src = eval('self.' + self.engine)[self.ui.input_comboBox.currentText()]
+        self.dest = eval('self.' + self.engine)[self.ui.output_comboBox.currentText()]
+        self.translate_thread = None
+        self.google_proxy = {'proxies': {'https': ''}}
+        self.baidu_key = {'appid': '', 'appkey': ''}
+
         # 绘制窗口并显示
-        self.show()
+        # self.show()
         # 打开软件默认最小化到托盘图标
-        # self.close()
+        self.close()
 
-    def add_web(self, url):
+    def input_change(self):
+        if self.ui.format_checkBox.isChecked():
+            self.format_text()
+        if self.ui.instant_translate_checkBox.isChecked():
+            if int(time.time()) - self.last_resp_time >= 1:
+                self.last_resp_time = int(time.time())
+            else:
+                time.sleep(1)
+            self.get_translate_text()
 
-        tab = None
-        browser = None
-        if 'google' in url:
-            tab = self.ui.google_tab
-            # 设置代理
-            proxy = QtNetwork.QNetworkProxy(QtNetwork.QNetworkProxy.HttpProxy, '127.0.0.1', 60801)
-            QtNetwork.QNetworkProxy.setApplicationProxy(proxy)
-            browser = self.google_browser = QWebEngineView(self)
-        elif 'deepl' in url:
-            tab = self.ui.deepl_tab
-            browser = self.deepl_browser = QWebEngineView(self)
-        elif 'baidu' in url:
-            tab = self.ui.baidu_tab
-            browser = self.baidu_browser = QWebEngineView(self)
-        elif 'youdao' in url:
-            tab = self.ui.youdao_tab
-            browser = self.youdao_browser = QWebEngineView(self)
+    def change_language(self):
+        if self.ui.instant_translate_checkBox.isChecked():
+            self.get_translate_text()
 
-        if browser and tab:
-            # 指定打开界面的 URL
-            browser.setUrl(QUrl(url))
+    def showGoogleDialog(self):
+        MyGoogleDialog.show_dialog(self)
+        if self.ui.instant_translate_checkBox.isChecked():
+            self.get_translate_text()
 
-            # 添加浏览器到窗口中
-            self.ui.gridLayout_1 = QtWidgets.QGridLayout(tab)
-            self.ui.gridLayout_1.setContentsMargins(0, 0, 0, 0)
-            self.ui.gridLayout_1.setSpacing(0)
-            self.ui.gridLayout_1.setObjectName("gridLayout_1")
-            self.ui.gridLayout_1.addWidget(browser)
+    def showBaiduDialog(self):
+        MyBaiduDialog.show_dialog(self)
+        if self.ui.instant_translate_checkBox.isChecked():
+            self.get_translate_text()
 
     def closeEvent(self, event):
         event.ignore()
@@ -200,9 +246,71 @@ class Window(FramelessWindow):
         qr.moveCenter(cp)
         self.move(qr.topLeft())
 
+    def change_request(self):
+        sender = self.sender()
+        self.engine = sender.text()
+        if self.ui.instant_translate_checkBox.isChecked():
+            self.get_translate_text()
+
+    def clear_input_output(self):
+        self.ui.input_plainTextEdit.clear()
+        self.ui.output_plainTextEdit.clear()
+
+    def format_text(self):
+        input_text = self.ui.input_plainTextEdit.toPlainText()
+        if input_text and input_text.strip() != '':
+            format_text = input_text.strip()
+            format_text = re.sub('[\t\r]+', '', format_text)
+            format_text = re.sub('[ ]+', ' ', format_text)
+            format_text = re.sub('[\u4e00-\u9fa5]+[ ]+[\u4e00-\u9fa5]+', '', format_text)
+            format_text = re.sub(r'\n+\s*', '\n', format_text)
+            format_text = re.sub('([^.^。])\n', r'\1', format_text)
+            if format_text != input_text:
+                self.ui.input_plainTextEdit.setPlainText(format_text)
+
+    def copy_result(self):
+        self.clipboard.setText(self.ui.output_plainTextEdit.toPlainText())
+
+    def update_result(self, text):
+        self.ui.output_plainTextEdit.setPlainText(text)
+
+    def get_translate_text(self):
+        input_text = self.ui.input_plainTextEdit.toPlainText()
+        if input_text and input_text.strip() != '':
+
+            # 创建翻译引擎对象
+            if self.engine == 'Google':
+                self.translator = GoogleTranslate(**self.google_proxy)
+            elif self.engine == 'DeepL':
+                self.translator = DeepLTranslate()
+            elif self.engine == 'Baidu':
+                self.translator = BaiduTranslate(**self.baidu_key)
+            elif self.engine == 'Youdao':
+                self.translator = YoudaoTranslate()
+
+            # 新建线程处理翻译操作
+            self.translate_thread = MyThread(
+                func=self.translator.translate,
+                **{'text': input_text,
+                   'target': eval('self.' + self.engine)[self.ui.output_comboBox.currentText()],
+                   'source': eval('self.' + self.engine)[self.ui.input_comboBox.currentText()]
+                   }
+            )
+            # 新线程处理完后发过来的信号挂接到槽函数update_result进行UI显示处理
+            self.translate_thread._sig.connect(self.update_result)
+            # 启动新线程
+            self.translate_thread.start()
+            # 超时关闭线程
+            QTimer.singleShot(5000, self.translate_thread.terminate)
+
+    # 即时翻译
+    def instant_translate(self):
+        if self.ui.instant_translate_checkBox.isChecked():
+            self.get_translate_text()
+
     # 切换主题
     def change_theme(self, mode=None):
-        qdarktheme.setup_theme(theme='auto')
+        qdarktheme.setup_theme(theme=self.ui.theme_comboBox.currentText())
 
         minBtn_maxBtn_light_style = {
             "normal": {
@@ -262,15 +370,18 @@ class Window(FramelessWindow):
             },
         }
 
-        if mode == 'Light' or darkdetect.isLight():
+        if self.ui.theme_comboBox.currentText() == 'light' or (
+                self.ui.theme_comboBox.currentText() == 'auto' and darkdetect.isLight()) or (
+                self.ui.theme_comboBox.currentText() == 'auto' and mode == 'Light'):
             self.titleBar.minBtn.updateStyle(minBtn_maxBtn_light_style)
             self.titleBar.maxBtn.updateStyle(minBtn_maxBtn_light_style)
             self.titleBar.closeBtn.updateStyle(closeBtn_light_style)
-        elif mode == 'Dark' or darkdetect.isDark():
+        elif self.ui.theme_comboBox.currentText() == 'dark' or (
+                self.ui.theme_comboBox.currentText() == 'auto' and darkdetect.isDark()) or (
+                self.ui.theme_comboBox.currentText() == 'auto' and mode == 'Dark'):
             self.titleBar.minBtn.updateStyle(minBtn_maxBtn_dark_style)
             self.titleBar.maxBtn.updateStyle(minBtn_maxBtn_dark_style)
             self.titleBar.closeBtn.updateStyle(closeBtn_dark_style)
-
 
 
 if __name__ == '__main__':
