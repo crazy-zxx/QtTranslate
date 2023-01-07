@@ -85,7 +85,7 @@ class HotKeyThread(QThread, SystemHotkey):
     def __init__(self, UI):
         self.ui = UI
         super(HotKeyThread, self).__init__()
-        self.register(('control', 'alt', 'l'), callback=lambda x: self.start())
+        self.register(('control', 'alt', 'f'), callback=lambda x: self.start())
         self.trigger.connect(self.hotKeyEvent)
 
     def run(self):
@@ -148,9 +148,9 @@ class Window(FramelessWindow):
         self.tray = Tray(self)
 
         # 绘制窗口并显示
-        self.show()
+        # self.show()
         # 打开软件默认最小化到托盘图标
-        # self.close()
+        self.close()
 
     def add_web(self, url):
 
