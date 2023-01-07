@@ -200,7 +200,7 @@ class Ui_Form(object):
 
     def retranslateUi(self, Form):
         _translate = QtCore.QCoreApplication.translate
-        Form.setWindowTitle(_translate("Form", "Form"))
+        Form.setWindowTitle(_translate("Form", "翻译软件1.0"))
         self.window_title.setText(_translate("Form", "翻译软件 1.0"))
         self.translate_pushButton.setText(_translate("Form", "  翻译（Ctrl+Alt+T）"))
         self.translate_pushButton.setShortcut(_translate("Form", "Ctrl+Alt+T"))

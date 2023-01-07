@@ -197,7 +197,9 @@ class Window(FramelessWindow):
         self.baidu_key = {'appid': '', 'appkey': ''}
 
         # 绘制窗口并显示
-        self.show()
+        # self.show()
+        # 打开软件默认最小化到托盘图标
+        self.close()
 
     def change_language(self):
         sender = self.sender()
