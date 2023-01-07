@@ -158,10 +158,10 @@ class Window(FramelessWindow):
         browser = None
         if 'google' in url:
             tab = self.ui.google_tab
-            # 设置代理
-            proxy = QtNetwork.QNetworkProxy(QtNetwork.QNetworkProxy.HttpProxy, '127.0.0.1', 60801)
-            QtNetwork.QNetworkProxy.setApplicationProxy(proxy)
-            browser = self.google_browser = QWebEngineView(self)
+            # # 设置代理
+            # proxy = QtNetwork.QNetworkProxy(QtNetwork.QNetworkProxy.HttpProxy, '127.0.0.1', 60801)
+            # QtNetwork.QNetworkProxy.setApplicationProxy(proxy)
+            # browser = self.google_browser = QWebEngineView(self)
         elif 'deepl' in url:
             tab = self.ui.deepl_tab
             browser = self.deepl_browser = QWebEngineView(self)
