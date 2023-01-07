@@ -86,7 +86,7 @@ class HotKeyThread(QThread, SystemHotkey):
     def __init__(self, UI):
         self.ui = UI
         super(HotKeyThread, self).__init__()
-        self.register(('control', 'alt', 'f'), callback=lambda x: self.start())
+        self.register(('control', 'alt', 'l'), callback=lambda x: self.start())
         self.trigger.connect(self.hotKeyEvent)
 
     def run(self):
@@ -155,7 +155,8 @@ class Window(FramelessWindow):
 
     def add_web(self, url):
 
-        tab = self.ui.google_tab
+        tab = None
+        browser = None
         if 'google' in url:
             tab = self.ui.google_tab
             # 设置代理
@@ -172,15 +173,16 @@ class Window(FramelessWindow):
             tab = self.ui.youdao_tab
             browser = self.youdao_browser = QWebEngineView(self)
 
-        # 指定打开界面的 URL
-        browser.setUrl(QUrl(url))
+        if browser and tab:
+            # 指定打开界面的 URL
+            browser.setUrl(QUrl(url))
 
-        # 添加浏览器到窗口中
-        self.ui.gridLayout_1 = QtWidgets.QGridLayout(tab)
-        self.ui.gridLayout_1.setContentsMargins(0, 0, 0, 0)
-        self.ui.gridLayout_1.setSpacing(0)
-        self.ui.gridLayout_1.setObjectName("gridLayout_1")
-        self.ui.gridLayout_1.addWidget(browser)
+            # 添加浏览器到窗口中
+            self.ui.gridLayout_1 = QtWidgets.QGridLayout(tab)
+            self.ui.gridLayout_1.setContentsMargins(0, 0, 0, 0)
+            self.ui.gridLayout_1.setSpacing(0)
+            self.ui.gridLayout_1.setObjectName("gridLayout_1")
+            self.ui.gridLayout_1.addWidget(browser)
 
     def closeEvent(self, event):
         event.ignore()
@@ -260,16 +262,15 @@ class Window(FramelessWindow):
             },
         }
 
-        if mode == 'Light':
+        if mode == 'Light' or darkdetect.isLight():
             self.titleBar.minBtn.updateStyle(minBtn_maxBtn_light_style)
             self.titleBar.maxBtn.updateStyle(minBtn_maxBtn_light_style)
             self.titleBar.closeBtn.updateStyle(closeBtn_light_style)
-            self.google_browser.page().setBackgroundColor(QColor(255, 255, 255))
-        elif mode == 'Dark':
+        elif mode == 'Dark' or darkdetect.isDark():
             self.titleBar.minBtn.updateStyle(minBtn_maxBtn_dark_style)
             self.titleBar.maxBtn.updateStyle(minBtn_maxBtn_dark_style)
             self.titleBar.closeBtn.updateStyle(closeBtn_dark_style)
-            self.google_browser.page().setBackgroundColor(QColor(0, 0, 0))
+
 
 
 if __name__ == '__main__':
